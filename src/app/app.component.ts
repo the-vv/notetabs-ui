@@ -60,7 +60,7 @@ import { toSignal } from '@angular/core/rxjs-interop';
       display: flex;
       justify-content: space-between;
       align-items: center;
-      padding: 0.5rem;
+      padding: 0.5rem .5rem 0 .5rem;
       background-color: #1a1a1a; /* Darker header */
       border-bottom: 1px solid #2a2a2a;
     }
@@ -115,7 +115,7 @@ import { toSignal } from '@angular/core/rxjs-interop';
       background-color: #2a2a2a;
       color: #ccc;
       cursor: pointer;
-      border-radius: 5px;
+      border-radius: 5px 5px 0 0;
     }
     .auth-controls {
       margin-left: 1rem;
