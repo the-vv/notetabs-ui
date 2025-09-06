@@ -1,17 +1,28 @@
-import { ChangeDetectionStrategy, Component, computed, effect, inject, PLATFORM_ID, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, effect, inject, PLATFORM_ID, signal, ViewChild } from '@angular/core';
 import { isPlatformBrowser } from '@angular/common';
 import { Note, NoteComponent } from './note/note';
 import { CdkDragDrop, DragDropModule, moveItemInArray } from '@angular/cdk/drag-drop';
 import { AuthService } from './auth.service';
 import { FirestoreService } from './firestore.service';
 import { toSignal } from '@angular/core/rxjs-interop';
+import { ToolbarComponent } from './toolbar.component';
 
 @Component({
   selector: 'app-root',
-  imports: [NoteComponent, DragDropModule], // Import NoteComponent and DragDropModule
+  imports: [NoteComponent, DragDropModule, ToolbarComponent], // Import NoteComponent and DragDropModule
   template: `
     <div class="app-container">
       <header class="app-header">
+        <div class="toolbar-container">
+          <app-toolbar (insertTimestamp)="insertTimestamp()" (goToBottom)="goToBottom()" (deleteNote)="deleteActiveNote()" />
+          <div class="auth-controls">
+            @if (user(); as currentUser) {
+              <button class="auth-button" (click)="logout()">Logout</button>
+            } @else {
+              <button class="auth-button" (click)="login()">Login</button>
+            }
+          </div>
+        </div>
         <div class="tab-bar" cdkDropList cdkDropListOrientation="horizontal" (cdkDropListDropped)="onTabDrop($event)">
           @for (note of notes(); track note.id) {
             <button 
@@ -28,17 +39,14 @@ import { toSignal } from '@angular/core/rxjs-interop';
           }
           <button class="add-tab-button" (click)="addNote()">+</button>
         </div>
-        <div class="auth-controls">
-          @if (user(); as currentUser) {
-            <button class="auth-button" (click)="logout()">Logout</button>
-          } @else {
-            <button class="auth-button" (click)="login()">Login</button>
-          }
-        </div>
       </header>
       <main class="main-content">
-        @if (activeNote(); as note) {
-          <app-note [note]="note" (noteChange)="onNoteChange($event)" />
+        @if (isLoading()) {
+          <div class="loading-placeholder">
+            <h2>Loading Notes...</h2>
+          </div>
+        } @else if (activeNote(); as note) {
+          <app-note #noteComponent [note]="note" (noteChange)="onNoteChange($event)" />
         } @else {
           <div class="no-notes-placeholder">
             <h2>No open notes</h2>
@@ -58,11 +66,17 @@ import { toSignal } from '@angular/core/rxjs-interop';
     }
     .app-header {
       display: flex;
-      justify-content: space-between;
-      align-items: center;
+      flex-direction: column;
       padding: 0.5rem .5rem 0 .5rem;
       background-color: #1a1a1a; /* Darker header */
       border-bottom: 1px solid #2a2a2a;
+    }
+    .toolbar-container {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      width: 100%;
+      margin-bottom: 0.5rem;
     }
     .tab-bar {
       display: flex;
@@ -131,7 +145,7 @@ import { toSignal } from '@angular/core/rxjs-interop';
     .main-content {
       flex-grow: 1;
     }
-    .no-notes-placeholder {
+    .no-notes-placeholder, .loading-placeholder {
       text-align: center;
       margin-top: 2rem;
     }
@@ -153,6 +167,8 @@ import { toSignal } from '@angular/core/rxjs-interop';
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class AppComponent {
+  @ViewChild('noteComponent') noteComponent?: NoteComponent;
+
   private platformId = inject(PLATFORM_ID);
   public authService = inject(AuthService);
   private firestoreService = inject(FirestoreService);
@@ -161,6 +177,7 @@ export class AppComponent {
 
   notes = signal<Note[]>([]);
   activeNoteId = signal<number | null>(null);
+  isLoading = signal<boolean>(false);
 
   activeNote = computed(() => {
     const id = this.activeNoteId();
@@ -206,6 +223,7 @@ export class AppComponent {
   }
 
   loadNotesFromLocalStorage() {
+    this.isLoading.set(false);
     const savedNotes = localStorage.getItem('notes');
     if (savedNotes) {
       this.notes.set(JSON.parse(savedNotes));
@@ -219,6 +237,7 @@ export class AppComponent {
   }
 
   async loadNotesFromFirestore(userId: string) {
+    this.isLoading.set(true);
     const notes = await this.firestoreService.getNotes(userId);
     if (notes.length > 0) {
       this.notes.set(notes);
@@ -226,6 +245,7 @@ export class AppComponent {
     } else {
       this.addNote();
     }
+    this.isLoading.set(false);
   }
 
   async login() {
@@ -262,8 +282,10 @@ export class AppComponent {
     this.activeNoteId.set(id);
   }
 
-  deleteNote(id: number, event: MouseEvent): void {
-    event.stopPropagation();
+  deleteNote(id: number, event?: MouseEvent): void {
+    if (event) {
+      event.stopPropagation();
+    }
     if (!confirm('Are you sure you want to delete this note?')) {
         return;
     }
@@ -296,6 +318,13 @@ export class AppComponent {
     }
   }
 
+  deleteActiveNote(): void {
+    const activeNoteId = this.activeNoteId();
+    if (activeNoteId !== null) {
+      this.deleteNote(activeNoteId);
+    }
+  }
+
   onNoteChange(updatedNote: Note): void {
     this.notes.update(notes => 
       notes.map(note => (note.id === updatedNote.id ? updatedNote : note))
@@ -310,5 +339,21 @@ export class AppComponent {
     const newNotes = [...this.notes()];
     moveItemInArray(newNotes, event.previousIndex, event.currentIndex);
     this.notes.set(newNotes);
+  }
+
+  insertTimestamp(): void {
+    const activeNote = this.activeNote();
+    if (activeNote) {
+      const timestamp = new Date().toLocaleString();
+      const updatedNote: Note = { 
+        ...activeNote, 
+        content: activeNote.content + '\n' + timestamp 
+      };
+      this.onNoteChange(updatedNote);
+    }
+  }
+
+  goToBottom(): void {
+    setTimeout(() => this.noteComponent?.scrollToBottom(), 0);
   }
 }

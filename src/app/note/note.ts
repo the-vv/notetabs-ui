@@ -1,5 +1,4 @@
-
-import { ChangeDetectionStrategy, Component, input, output } from '@angular/core';
+import { ChangeDetectionStrategy, Component, ElementRef, input, output, ViewChild } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 
 // Define the shape of a note
@@ -14,7 +13,7 @@ export interface Note {
   imports: [FormsModule], // Import FormsModule for ngModel
   template: `
     <div class="note-container">
-      <textarea
+      <textarea #textarea
         placeholder="Your note..."
         class="note-content-textarea"
         [ngModel]="note().content"
@@ -46,10 +45,14 @@ export interface Note {
       resize: none;
       overflow-y: auto; /* Ensure vertical scrolling */
     }
+    .note-content-textarea:focus {
+      outline: none;
+    }
   `],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class NoteComponent {
+  @ViewChild('textarea') textarea!: ElementRef<HTMLTextAreaElement>;
   // Use input() for the note data. It's required.
   note = input.required<Note>();
 
@@ -58,7 +61,14 @@ export class NoteComponent {
 
   // Method to update the content and derive the title
   updateContent(newContent: string): void {
-    const newTitle = newContent.substring(0, 30) || 'Untitled Note';
+    const firstLine = newContent.split('\n')[0];
+    const newTitle = firstLine.substring(0, 30) || 'Untitled Note';
     this.noteChange.emit({ ...this.note(), title: newTitle, content: newContent });
+  }
+
+  scrollToBottom(): void {
+    if (this.textarea) {
+      this.textarea.nativeElement.scrollTop = this.textarea.nativeElement.scrollHeight;
+    }
   }
 }
