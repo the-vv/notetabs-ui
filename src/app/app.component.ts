@@ -1,8 +1,10 @@
-
 import { ChangeDetectionStrategy, Component, computed, effect, inject, PLATFORM_ID, signal } from '@angular/core';
 import { isPlatformBrowser } from '@angular/common';
 import { Note, NoteComponent } from './note/note';
 import { CdkDragDrop, DragDropModule, moveItemInArray } from '@angular/cdk/drag-drop';
+import { AuthService } from './auth.service';
+import { FirestoreService } from './firestore.service';
+import { toSignal } from '@angular/core/rxjs-interop';
 
 @Component({
   selector: 'app-root',
@@ -18,13 +20,20 @@ import { CdkDragDrop, DragDropModule, moveItemInArray } from '@angular/cdk/drag-
               (click)="selectNote(note.id)"
               cdkDrag
             >
-              {{ note.title || 'Untitled Note' }}
+              <span class="tab-text">{{ note.title || 'Untitled Note' }}</span>
               @if (notes().length > 1) {
                 <span class="delete-tab-button" (click)="deleteNote(note.id, $event)">&times;</span>
               }
             </button>
           }
           <button class="add-tab-button" (click)="addNote()">+</button>
+        </div>
+        <div class="auth-controls">
+          @if (user(); as currentUser) {
+            <button class="auth-button" (click)="logout()">Logout</button>
+          } @else {
+            <button class="auth-button" (click)="login()">Login</button>
+          }
         </div>
       </header>
       <main class="main-content">
@@ -48,6 +57,9 @@ import { CdkDragDrop, DragDropModule, moveItemInArray } from '@angular/cdk/drag-
       color: #d4d4d4;
     }
     .app-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
       padding: 0.5rem;
       background-color: #1a1a1a; /* Darker header */
       border-bottom: 1px solid #2a2a2a;
@@ -56,6 +68,19 @@ import { CdkDragDrop, DragDropModule, moveItemInArray } from '@angular/cdk/drag-
       display: flex;
       align-items: center;
       overflow-x: auto;
+    }
+    .tab-bar::-webkit-scrollbar {
+      height: 8px;
+    }
+    .tab-bar::-webkit-scrollbar-track {
+      background: #1a1a1a;
+    }
+    .tab-bar::-webkit-scrollbar-thumb {
+      background-color: #444;
+      border-radius: 4px;
+    }
+    .tab-bar::-webkit-scrollbar-thumb:hover {
+      background-color: #555;
     }
     .tab-button {
       padding: 0.5rem 1rem;
@@ -68,6 +93,12 @@ import { CdkDragDrop, DragDropModule, moveItemInArray } from '@angular/cdk/drag-
       display: flex;
       align-items: center;
       transition: background-color 0.2s;
+      max-width: 200px; /* Set a max-width for the tabs */
+    }
+    .tab-text {
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
     .tab-button.active {
       background-color: #121212; /* Active tab matches background */
@@ -79,6 +110,17 @@ import { CdkDragDrop, DragDropModule, moveItemInArray } from '@angular/cdk/drag-
       font-weight: bold;
     }
     .add-tab-button {
+      padding: 0.5rem 1rem;
+      border: none;
+      background-color: #2a2a2a;
+      color: #ccc;
+      cursor: pointer;
+      border-radius: 5px;
+    }
+    .auth-controls {
+      margin-left: 1rem;
+    }
+    .auth-button {
       padding: 0.5rem 1rem;
       border: none;
       background-color: #2a2a2a;
@@ -112,6 +154,10 @@ import { CdkDragDrop, DragDropModule, moveItemInArray } from '@angular/cdk/drag-
 })
 export class AppComponent {
   private platformId = inject(PLATFORM_ID);
+  public authService = inject(AuthService);
+  private firestoreService = inject(FirestoreService);
+  
+  user = toSignal(this.authService.user$);
 
   notes = signal<Note[]>([]);
   activeNoteId = signal<number | null>(null);
@@ -122,25 +168,80 @@ export class AppComponent {
   });
 
   constructor() {
-    if (isPlatformBrowser(this.platformId)) {
-      const savedNotes = localStorage.getItem('notes');
-      if (savedNotes) {
-        this.notes.set(JSON.parse(savedNotes));
-        const savedActiveId = localStorage.getItem('activeNoteId');
-        if (savedActiveId) {
-          this.activeNoteId.set(JSON.parse(savedActiveId));
-        }
-      } else {
-        this.addNote();
-      }
-    }
-
+    // Initial data loading effect
     effect(() => {
-      if (isPlatformBrowser(this.platformId)) {
-        localStorage.setItem('notes', JSON.stringify(this.notes()));
-        localStorage.setItem('activeNoteId', JSON.stringify(this.activeNoteId()));
-      }
+        if (isPlatformBrowser(this.platformId)) {
+            const currentUser = this.user();
+            // Wait until user state is resolved
+            if(currentUser === undefined) return;
+
+            if (currentUser) {
+                this.loadNotesFromFirestore(currentUser.uid);
+            } else {
+                this.loadNotesFromLocalStorage();
+            }
+        }
+    }, { allowSignalWrites: true });
+
+    // Data synchronization effect
+    effect(() => {
+        if (isPlatformBrowser(this.platformId)) {
+            const currentUser = this.user();
+            // Wait until user state is resolved
+            if(currentUser === undefined) return;
+
+            const currentNotes = this.notes();
+            const currentActiveNoteId = this.activeNoteId();
+
+            if (currentUser) {
+                if(currentNotes.length > 0) { // only sync if there are notes
+                    this.firestoreService.syncNotes(currentUser.uid, currentNotes);
+                }
+            } else {
+                localStorage.setItem('notes', JSON.stringify(currentNotes));
+                localStorage.setItem('activeNoteId', JSON.stringify(currentActiveNoteId));
+            }
+        }
     });
+  }
+
+  loadNotesFromLocalStorage() {
+    const savedNotes = localStorage.getItem('notes');
+    if (savedNotes) {
+      this.notes.set(JSON.parse(savedNotes));
+      const savedActiveId = localStorage.getItem('activeNoteId');
+      if (savedActiveId) {
+        this.activeNoteId.set(JSON.parse(savedActiveId));
+      }
+    } else {
+      this.addNote();
+    }
+  }
+
+  async loadNotesFromFirestore(userId: string) {
+    const notes = await this.firestoreService.getNotes(userId);
+    if (notes.length > 0) {
+      this.notes.set(notes);
+      this.activeNoteId.set(notes[0].id);
+    } else {
+      this.addNote();
+    }
+  }
+
+  async login() {
+    const userCredential = await this.authService.login();
+    const user = userCredential.user;
+    const localNotes = JSON.parse(localStorage.getItem('notes') || '[]');
+    if (localNotes.length > 0) {
+        // Sync local notes to Firestore
+        await this.firestoreService.syncNotes(user.uid, localNotes);
+    }
+    // The effect will handle loading notes from firestore
+  }
+
+  logout() {
+    this.authService.logout();
+    // The effect will handle loading notes from local storage
   }
 
   addNote(): void {
@@ -151,6 +252,10 @@ export class AppComponent {
     };
     this.notes.update(notes => [...notes, newNote]);
     this.activeNoteId.set(newNote.id);
+    const currentUser = this.user();
+    if (currentUser) {
+      this.firestoreService.addNote(currentUser.uid, newNote);
+    }
   }
 
   selectNote(id: number): void {
@@ -175,11 +280,9 @@ export class AppComponent {
     if (this.activeNoteId() === id) {
         let newActiveId: number | null = null;
         if (updatedNotes.length > 0) {
-            // If the deleted note was the last in the list, select the new last note
             if (noteIndex >= updatedNotes.length) {
                 newActiveId = updatedNotes[updatedNotes.length - 1].id;
             } else {
-                // Otherwise, select the note that took the deleted note's place
                 newActiveId = updatedNotes[noteIndex].id;
             }
         }
@@ -187,12 +290,20 @@ export class AppComponent {
     }
 
     this.notes.set(updatedNotes);
+    const currentUser = this.user();
+    if (currentUser) {
+      this.firestoreService.deleteNote(currentUser.uid, id);
+    }
   }
 
   onNoteChange(updatedNote: Note): void {
     this.notes.update(notes => 
       notes.map(note => (note.id === updatedNote.id ? updatedNote : note))
     );
+    const currentUser = this.user();
+    if (currentUser) {
+      this.firestoreService.updateNote(currentUser.uid, updatedNote);
+    }
   }
 
   onTabDrop(event: CdkDragDrop<Note[]>): void {
