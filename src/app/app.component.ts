@@ -4,8 +4,25 @@ import { Note, NoteComponent } from './note/note';
 import { CdkDragDrop, DragDropModule, moveItemInArray } from '@angular/cdk/drag-drop';
 import { AuthService } from './auth.service';
 import { FirestoreService } from './firestore.service';
+import { debounce } from 'lodash';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { ToolbarComponent } from './toolbar.component';
+
+function Debounce(delay: number = 500) {
+  return function (target: any, propertyKey: string, descriptor: PropertyDescriptor) {
+      let timeout: ReturnType<typeof setTimeout>;
+      const originalMethod = descriptor.value;
+
+      descriptor.value = function (...args: any[]) {
+          clearTimeout(timeout);
+          timeout = setTimeout(() => {
+              originalMethod.apply(this, args);
+          }, delay);
+      };
+
+      return descriptor;
+  };
+}
 
 @Component({
   selector: 'app-root',
@@ -325,14 +342,17 @@ export class AppComponent {
     }
   }
 
+  // Debounce the updateNote call to avoid excessive writes
+  @Debounce(1000)
+  private debouncedUpdateNote(userId: string, note: Note) {
+    this.firestoreService.updateNote(userId, note);
+  }
+
   onNoteChange(updatedNote: Note): void {
     this.notes.update(notes => 
       notes.map(note => (note.id === updatedNote.id ? updatedNote : note))
     );
-    const currentUser = this.user();
-    if (currentUser) {
-      this.firestoreService.updateNote(currentUser.uid, updatedNote);
-    }
+    this.debouncedUpdateNote(this.user()!.uid, updatedNote);
   }
 
   onTabDrop(event: CdkDragDrop<Note[]>): void {
