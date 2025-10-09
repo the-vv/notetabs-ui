@@ -1,7 +1,6 @@
 import { ChangeDetectionStrategy, Component, computed, effect, inject, PLATFORM_ID, signal, ViewChild } from '@angular/core';
 import { isPlatformBrowser } from '@angular/common';
 import { Note, NoteComponent } from './note/note';
-import { CdkDragDrop, DragDropModule, moveItemInArray } from '@angular/cdk/drag-drop';
 import { AuthService } from './auth.service';
 import { FirestoreService } from './firestore.service';
 import { debounce } from 'lodash';
@@ -26,7 +25,7 @@ function Debounce(delay: number = 500) {
 
 @Component({
   selector: 'app-root',
-  imports: [NoteComponent, DragDropModule, ToolbarComponent], // Import NoteComponent and DragDropModule
+  imports: [NoteComponent, ToolbarComponent], // Import NoteComponent and ToolbarComponent
   template: `
     <div class="app-container">
       <header class="app-header">
@@ -34,19 +33,19 @@ function Debounce(delay: number = 500) {
           <app-toolbar (insertTimestamp)="insertTimestamp()" (goToBottom)="goToBottom()" (deleteNote)="deleteActiveNote()" />
           <div class="auth-controls">
             @if (user(); as currentUser) {
+              <span class="user-email">{{ currentUser.email }}</span>
               <button class="auth-button" (click)="logout()">Logout</button>
             } @else {
               <button class="auth-button" (click)="login()">Login</button>
             }
           </div>
         </div>
-        <div class="tab-bar" cdkDropList cdkDropListOrientation="horizontal" (cdkDropListDropped)="onTabDrop($event)">
+        <div class="tab-bar">
           @for (note of notes(); track note.id) {
             <button 
               class="tab-button" 
               [class.active]="note.id === activeNoteId()"
               (click)="selectNote(note.id)"
-              cdkDrag
             >
               <span class="tab-text">{{ note.title || 'Untitled Note' }}</span>
               @if (notes().length > 1) {
@@ -98,20 +97,8 @@ function Debounce(delay: number = 500) {
     .tab-bar {
       display: flex;
       align-items: center;
-      overflow-x: auto;
-    }
-    .tab-bar::-webkit-scrollbar {
-      height: 8px;
-    }
-    .tab-bar::-webkit-scrollbar-track {
-      background: #1a1a1a;
-    }
-    .tab-bar::-webkit-scrollbar-thumb {
-      background-color: #444;
-      border-radius: 4px;
-    }
-    .tab-bar::-webkit-scrollbar-thumb:hover {
-      background-color: #555;
+      flex-wrap: wrap;
+      gap: 5px;
     }
     .tab-button {
       padding: 0.5rem 1rem;
@@ -119,8 +106,7 @@ function Debounce(delay: number = 500) {
       background-color: #2a2a2a; /* Darker tab */
       color: #ccc;
       cursor: pointer;
-      margin-right: 5px;
-      border-radius: 5px 5px 0 0;
+      border-radius: 5px;
       display: flex;
       align-items: center;
       transition: background-color 0.2s;
@@ -146,10 +132,17 @@ function Debounce(delay: number = 500) {
       background-color: #2a2a2a;
       color: #ccc;
       cursor: pointer;
-      border-radius: 5px 5px 0 0;
+      border-radius: 5px;
     }
     .auth-controls {
       margin-left: 1rem;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    .user-email {
+      font-size: 0.75rem;
+      color: #888;
     }
     .auth-button {
       padding: 0.5rem 1rem;
@@ -165,20 +158,6 @@ function Debounce(delay: number = 500) {
     .no-notes-placeholder, .loading-placeholder {
       text-align: center;
       margin-top: 2rem;
-    }
-    /* Drag and Drop styles */
-    .cdk-drag-preview {
-      box-sizing: border-box;
-      border-radius: 4px;
-      box-shadow: 0 5px 5px -3px rgba(0, 0, 0, 0.2),
-                  0 8px 10px 1px rgba(0, 0, 0, 0.14),
-                  0 3px 14px 2px rgba(0, 0, 0, 0.12);
-    }
-    .cdk-drag-placeholder {
-      opacity: 0;
-    }
-    .cdk-drop-list-dragging .cdk-drag {
-      transition: transform 250ms cubic-bezier(0, 0, 0.2, 1);
     }
   `],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -355,25 +334,11 @@ export class AppComponent {
     this.debouncedUpdateNote(this.user()!.uid, updatedNote);
   }
 
-  onTabDrop(event: CdkDragDrop<Note[]>): void {
-    const newNotes = [...this.notes()];
-    moveItemInArray(newNotes, event.previousIndex, event.currentIndex);
-    this.notes.set(newNotes);
-  }
-
   insertTimestamp(): void {
-    const activeNote = this.activeNote();
-    if (activeNote) {
-      const timestamp = new Date().toLocaleString();
-      const updatedNote: Note = { 
-        ...activeNote, 
-        content: activeNote.content + '\n' + timestamp 
-      };
-      this.onNoteChange(updatedNote);
-    }
+    this.noteComponent?.insertTimestampAtCursor();
   }
 
   goToBottom(): void {
-    setTimeout(() => this.noteComponent?.scrollToBottom(), 0);
+    setTimeout(() => this.noteComponent?.scrollToBottomAndMoveCursor(), 0);
   }
 }
