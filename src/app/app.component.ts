@@ -42,8 +42,8 @@ function Debounce(delay: number = 500) {
         </div>
         <div class="tab-bar">
           @for (note of notes(); track note.id) {
-            <button 
-              class="tab-button" 
+            <button
+              class="tab-button"
               [class.active]="note.id === activeNoteId()"
               (click)="selectNote(note.id)"
             >
@@ -99,6 +99,7 @@ function Debounce(delay: number = 500) {
       align-items: center;
       flex-wrap: wrap;
       gap: 5px;
+      padding-bottom: 5px;;
     }
     .tab-button {
       padding: 0.5rem 1rem;
@@ -168,7 +169,7 @@ export class AppComponent {
   private platformId = inject(PLATFORM_ID);
   public authService = inject(AuthService);
   private firestoreService = inject(FirestoreService);
-  
+
   user = toSignal(this.authService.user$);
 
   notes = signal<Note[]>([]);
@@ -328,7 +329,7 @@ export class AppComponent {
   }
 
   onNoteChange(updatedNote: Note): void {
-    this.notes.update(notes => 
+    this.notes.update(notes =>
       notes.map(note => (note.id === updatedNote.id ? updatedNote : note))
     );
     this.debouncedUpdateNote(this.user()!.uid, updatedNote);
