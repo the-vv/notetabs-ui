@@ -71,4 +71,38 @@ export class NoteComponent {
       this.textarea.nativeElement.scrollTop = this.textarea.nativeElement.scrollHeight;
     }
   }
+
+  scrollToBottomAndMoveCursor(): void {
+    if (this.textarea) {
+      const element = this.textarea.nativeElement;
+      element.scrollTop = element.scrollHeight;
+      // Move cursor to the end
+      const length = element.value.length;
+      element.setSelectionRange(length, length);
+      element.focus();
+    }
+  }
+
+  insertTimestampAtCursor(): void {
+    if (this.textarea) {
+      const element = this.textarea.nativeElement;
+      const timestamp = new Date().toLocaleString();
+      const start = element.selectionStart;
+      const end = element.selectionEnd;
+      const currentContent = this.note().content;
+      const newContent = currentContent.substring(0, start) + timestamp + currentContent.substring(end);
+      
+      // Update the content
+      const firstLine = newContent.split('\n')[0];
+      const newTitle = firstLine.substring(0, 30) || 'Untitled Note';
+      this.noteChange.emit({ ...this.note(), title: newTitle, content: newContent });
+      
+      // Set cursor position after the timestamp
+      setTimeout(() => {
+        const newCursorPos = start + timestamp.length;
+        element.setSelectionRange(newCursorPos, newCursorPos);
+        element.focus();
+      }, 0);
+    }
+  }
 }
